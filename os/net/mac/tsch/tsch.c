@@ -58,6 +58,14 @@
 #include "lib/random.h"
 #include "net/routing/routing.h"
 
+#if BUILD_WITH_LAYERED
+#include "layered.h"
+#endif
+
+#if BUILD_WITH_PACKET_TYPE
+#include "packet-type.h"
+#endif
+
 #if TSCH_WITH_SIXTOP
 #include "net/mac/tsch/sixtop/sixtop.h"
 #endif
@@ -537,8 +545,10 @@ tsch_tx_process_pending(void)
     mac_call_sent_callback(p->sent, p->ptr, p->ret, p->transmissions);
     /* Free packet queuebuf */
     tsch_queue_free_packet(p);
+#if !BUILD_WITH_LAYERED
     /* Free all unused neighbors */
     tsch_queue_free_unused_neighbors();
+#endif
     /* Remove dequeued packet from ringbuf */
     ringbufindex_get(&dequeued_ringbuf);
   }
@@ -688,11 +698,19 @@ tsch_associate(const struct input_packet *input_eb, rtimer_clock_t timestamp)
           ies.ie_tsch_slotframe_and_link.slotframe_handle,
           ies.ie_tsch_slotframe_and_link.slotframe_size);
       for(i = 0; i < num_links; i++) {
+#if BUILD_WITH_LAYERED
+        tsch_schedule_add_link(sf,
+            ies.ie_tsch_slotframe_and_link.links[i].link_options,
+            LINK_TYPE_ADVERTISING, &tsch_broadcast_address,
+            ies.ie_tsch_slotframe_and_link.links[i].timeslot,
+            ies.ie_tsch_slotframe_and_link.links[i].channel_offset, 1, false);
+#else
         tsch_schedule_add_link(sf,
             ies.ie_tsch_slotframe_and_link.links[i].link_options,
             LINK_TYPE_ADVERTISING, &tsch_broadcast_address,
             ies.ie_tsch_slotframe_and_link.links[i].timeslot,
             ies.ie_tsch_slotframe_and_link.links[i].channel_offset, 1);
+#endif
       }
     } else {
       LOG_ERR("! parse_eb: too many links in schedule (%u)\n", num_links);
@@ -1061,6 +1079,40 @@ tsch_init(void)
 
   tsch_stats_init();
 }
+
+#if BUILD_WITH_LAYERED
+static void
+print_packetbuf_queue_address(void) {
+  if(packetbuf_attr(PACKETBUF_ATTR_PACKET_TYPE) == PACKET_TYPE_RPL ||
+      packetbuf_attr(PACKETBUF_ATTR_PACKET_TYPE) == PACKET_TYPE_KEEPALIVE) {
+    LOG_WARN_("/queue: ");
+    LOG_WARN_LLADDR(&tsch_broadcast_address);
+    return;
+  }
+
+  linkaddr_t flow_address = {0};
+  bool packet_belongs_to_a_flow =
+      layered_get_flow_address_for_packet(
+          packetbuf_attr(PACKETBUF_ATTR_FRAME_TYPE),
+          packetbuf_dataptr(), packetbuf_datalen(),
+          &flow_address);
+
+  if(packet_belongs_to_a_flow) {
+#if BUILD_WITH_DEPLOYMENT
+    // Flow addresses are not in the deployment mapping, so printing
+    // does not work. We there adjust it
+    // so that it becomes same as the source node id
+    // (which what the flow id is based on).
+    flow_address.u8[0] = 0x02;
+    flow_address.u8[1] = 0x00;
+#endif
+    LOG_WARN_("/queue: ");
+    LOG_WARN_LLADDR(&flow_address);
+    return;
+  }
+}
+#endif /* BUILD_WITH_LAYERED */
+
 /*---------------------------------------------------------------------------*/
 /* Function send for TSCH-MAC, puts the packet in packetbuf in the MAC queue */
 static void
@@ -1127,23 +1179,46 @@ send_packet(mac_callback_t sent, void *ptr)
     struct tsch_neighbor *n;
     /* Enqueue packet */
     p = tsch_queue_add_packet(addr, max_transmissions, sent, ptr);
+#if BUILD_WITH_LAYERED
+    linkaddr_t queue_addr = {0};
+    linkaddr_copy(&queue_addr, addr);
+    tsch_queue_get_actual_queue(&queue_addr);
+    n = tsch_queue_get_nbr(&queue_addr);
+#else
     n = tsch_queue_get_nbr(addr);
+#endif
     if(p == NULL) {
       LOG_ERR("! can't send packet to ");
       LOG_ERR_LLADDR(addr);
+#if BUILD_WITH_LAYERED
+      print_packetbuf_queue_address();
+#endif
+#if BUILD_WITH_PACKET_TYPE
+      LOG_ERR_(" with seqno %u, queue %u/%u %u/%u app %d\n",
+                tsch_packet_seqno, tsch_queue_nbr_packet_count(n),
+                TSCH_QUEUE_NUM_PER_NEIGHBOR - 1, tsch_queue_global_packet_count(),
+                QUEUEBUF_NUM,
+                packetbuf_attr(PACKETBUF_ATTR_PACKET_TYPE) == PACKET_TYPE_APP);
+#else
       LOG_ERR_(" with seqno %u, queue %u/%u %u/%u\n",
-          tsch_packet_seqno, tsch_queue_nbr_packet_count(n),
-          TSCH_QUEUE_NUM_PER_NEIGHBOR, tsch_queue_global_packet_count(),
-          QUEUEBUF_NUM);
+                tsch_packet_seqno, tsch_queue_nbr_packet_count(n),
+                TSCH_QUEUE_NUM_PER_NEIGHBOR - 1, tsch_queue_global_packet_count(),
+                QUEUEBUF_NUM);
+#endif
       ret = MAC_TX_QUEUE_FULL;
     } else {
       p->header_len = hdr_len;
-      LOG_INFO("send packet to ");
-      LOG_INFO_LLADDR(addr);
-      LOG_INFO_(" with seqno %u, queue %u/%u %u/%u, len %u %u\n",
+#if 0
+      LOG_WARN("TX to ");
+      LOG_WARN_LLADDR(addr);
+#if BUILD_WITH_LAYERED
+      print_packetbuf_queue_address();
+#endif
+      LOG_WARN_(" seqno %u, queue %u/%u %u/%u, len %u\n",
              tsch_packet_seqno, tsch_queue_nbr_packet_count(n),
-             TSCH_QUEUE_NUM_PER_NEIGHBOR, tsch_queue_global_packet_count(),
-             QUEUEBUF_NUM, p->header_len, queuebuf_datalen(p->qb));
+             TSCH_QUEUE_NUM_PER_NEIGHBOR - 1, tsch_queue_global_packet_count(),
+             QUEUEBUF_NUM, queuebuf_datalen(p->qb));
+#endif
     }
   }
   if(ret != MAC_TX_DEFERRED) {

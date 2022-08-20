@@ -184,5 +184,15 @@ void tsch_queue_update_all_backoff_windows(const linkaddr_t *dest_addr);
  */
 void tsch_queue_init(void);
 
+#if BUILD_WITH_LAYERED
+/**
+ * \brief Returns the actual neighbor-queue the packet in the packetbuf
+ * will be in.
+ * \note If queue is equal to the neighbor (i.e. no special handling), the
+ * parameter is left untouched.
+ */
+void tsch_queue_get_actual_queue(linkaddr_t* neighbor_queue_addr);
+#endif
+
 #endif /* __TSCH_QUEUE_H__ */
 /** @} */

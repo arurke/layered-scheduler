@@ -103,6 +103,9 @@ struct tsch_packet {
   uint8_t ret; /* status -- MAC return code */
   uint8_t header_len; /* length of header and header IEs (needed for link-layer security) */
   uint8_t tsch_sync_ie_offset; /* Offset within the frame used for quick update of EB ASN and join priority */
+#if BUILD_WITH_LAYERED
+  struct tsch_link* link_used;
+#endif
 };
 
 /** \brief TSCH neighbor information */

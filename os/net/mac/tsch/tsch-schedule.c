@@ -210,12 +210,41 @@ print_link_type(uint16_t link_type)
     return "?";
   }
 }
+#if BUILD_WITH_LAYERED
+// We use special prefix 0xff0f in addr. to indicate this is a flow
+// This adds two constraints:
+// 1. Flow-addresses are limited to the 6 LSB
+// 2. Node MAC-addresses cannot start with FLOW_ADDRESS_PREFIX
+#define FLOW_ADDRESS_PREFIX   0xff0f
+
+void
+tsch_schedule_convert_to_flow_address(linkaddr_t* addr) {
+  addr->u16[0] = FLOW_ADDRESS_PREFIX;
+}
+
+bool
+tsch_schedule_addr_is_for_flow(const linkaddr_t* addr) {
+  return addr->u16[0] == FLOW_ADDRESS_PREFIX;
+}
+
+bool
+tsch_schedule_link_is_flow_link(const struct tsch_link* link) {
+  return tsch_schedule_addr_is_for_flow(&link->addr);
+}
+
 /*---------------------------------------------------------------------------*/
 /* Adds a link to a slotframe, return a pointer to it (NULL if failure) */
 struct tsch_link *
 tsch_schedule_add_link(struct tsch_slotframe *slotframe,
                        uint8_t link_options, enum link_type link_type, const linkaddr_t *address,
+                       uint16_t timeslot, uint16_t channel_offset, uint8_t do_remove,
+                       bool is_flow)
+#else
+struct tsch_link *
+tsch_schedule_add_link(struct tsch_slotframe *slotframe,
+                       uint8_t link_options, enum link_type link_type, const linkaddr_t *address,
                        uint16_t timeslot, uint16_t channel_offset, uint8_t do_remove)
+#endif
 {
   struct tsch_link *l = NULL;
   if(slotframe != NULL) {
@@ -256,13 +285,25 @@ tsch_schedule_add_link(struct tsch_slotframe *slotframe,
           address = &linkaddr_null;
         }
         linkaddr_copy(&l->addr, address);
+#if BUILD_WITH_LAYERED
+        if(is_flow) {
+          tsch_schedule_convert_to_flow_address(&l->addr);
+        }
 
+        LOG_INFO("add_link sf=%u opt=%s type=%s ts=%u ch=%u flow=%d addr=",
+                 slotframe->handle,
+                 print_link_options(link_options),
+                 print_link_type(link_type), timeslot, channel_offset, is_flow);
+        LOG_INFO_LLADDR(address);
+        LOG_INFO_("\n");
+#else
         LOG_INFO("add_link sf=%u opt=%s type=%s ts=%u ch=%u addr=",
                  slotframe->handle,
                  print_link_options(link_options),
                  print_link_type(link_type), timeslot, channel_offset);
         LOG_INFO_LLADDR(address);
         LOG_INFO_("\n");
+#endif
         /* Release the lock before we update the neighbor (will take the lock) */
         tsch_release_lock();
 
@@ -512,10 +553,17 @@ tsch_schedule_create_minimal(void)
    * We set the link type to advertising, which is not compliant with 6TiSCH minimal schedule
    * but is required according to 802.15.4e if also used for EB transmission.
    * Timeslot: 0, channel offset: 0. */
+#if BUILD_WITH_LAYERED
+  tsch_schedule_add_link(sf_min,
+      (LINK_OPTION_RX | LINK_OPTION_TX | LINK_OPTION_SHARED | LINK_OPTION_TIME_KEEPING),
+      LINK_TYPE_ADVERTISING, &tsch_broadcast_address,
+      0, 0, 1, false);
+#else
   tsch_schedule_add_link(sf_min,
       (LINK_OPTION_RX | LINK_OPTION_TX | LINK_OPTION_SHARED | LINK_OPTION_TIME_KEEPING),
       LINK_TYPE_ADVERTISING, &tsch_broadcast_address,
       0, 0, 1);
+#endif
 }
 /*---------------------------------------------------------------------------*/
 struct tsch_slotframe *
@@ -531,6 +579,13 @@ tsch_schedule_slotframe_next(struct tsch_slotframe *sf)
 }
 /*---------------------------------------------------------------------------*/
 /* Prints out the current schedule (all slotframes and links) */
+#if BUILD_WITH_LAYERED
+extern volatile uint32_t tsch_flow_missing_neighbor;
+extern volatile uint32_t tsch_flow_error;
+extern volatile uint32_t tsch_slot_timing_missed;
+#endif
+
+
 void
 tsch_schedule_print(void)
 {
@@ -554,6 +609,10 @@ tsch_schedule_print(void)
     }
 
     LOG_PRINT("----- end slotframe list -----\n");
+#if BUILD_WITH_LAYERED
+    LOG_PRINT("Timing err: %lu, miss nei: %lu, lay err: %lu\n",
+             tsch_slot_timing_missed, tsch_flow_missing_neighbor, tsch_flow_error);
+#endif
   }
 }
 /*---------------------------------------------------------------------------*/

@@ -53,6 +53,10 @@
 #include "net/mac/framer/framer-802154.h"
 #include "net/mac/tsch/tsch.h"
 #include "sys/critical.h"
+#if BUILD_WITH_LAYERED
+// TODO ad-hoc stats
+#include "../../../services/layered/layered.h"
+#endif
 
 #include "sys/log.h"
 /* TSCH debug macros, i.e. to set LEDs or GPIOs on various TSCH
@@ -178,6 +182,10 @@ static struct pt slot_operation_pt;
 static PT_THREAD(tsch_tx_slot(struct pt *pt, struct rtimer *t));
 static PT_THREAD(tsch_rx_slot(struct pt *pt, struct rtimer *t));
 
+#if BUILD_WITH_LAYERED
+volatile uint32_t tsch_slot_timing_missed = 0;
+volatile uint32_t tsch_flow_missing_neighbor = 0;
+#endif
 /*---------------------------------------------------------------------------*/
 /* TSCH locking system. TSCH is locked during slot operations */
 
@@ -354,8 +362,94 @@ get_packet_and_neighbor_for_link(struct tsch_link *link, struct tsch_neighbor **
       /* NORMAL link or no EB to send, pick a data packet */
       if(p == NULL) {
         /* Get neighbor queue associated to the link and get packet from it */
-        n = tsch_queue_get_nbr(&link->addr);
-        p = tsch_queue_get_packet_for_nbr(n, link);
+
+#if BUILD_WITH_LAYERED
+        if(tsch_schedule_link_is_flow_link(link)) {
+          // The link is tied to a flow-neighbor
+          // Get the neighbor, and the packet from its queue.
+          if(tsch_is_locked()) {
+            return NULL;
+          }
+
+          struct tsch_neighbor* flow_neighbor = tsch_queue_get_nbr(&link->addr);
+          if(flow_neighbor == NULL) {
+            TSCH_LOG_ADD(tsch_log_message,
+                          snprintf(log->message, sizeof(log->message),
+                                   "Lay!: no flow neighbor"));
+            tsch_flow_missing_neighbor++;
+            return NULL;
+          }
+
+          // Get packet from the flow-neighbor
+          p = tsch_queue_get_packet_for_nbr(flow_neighbor, link);
+          if(p != NULL) {
+            // Get the next-hop neighbor as specified in the packet
+            // when it was added to the queue
+            // Put this into `n` which is what TSCH uses as the next
+            // hop neighbor (e.g. for drift correction).
+            linkaddr_t* packet_dest =
+                queuebuf_addr(p->qb, PACKETBUF_ADDR_RECEIVER);
+            n = tsch_queue_get_nbr(packet_dest);
+            if(n == NULL) {
+              TSCH_LOG_ADD(tsch_log_message,
+                            snprintf(log->message, sizeof(log->message),
+                                     "Lay!: no next-hop neighbor."));
+              tsch_flow_missing_neighbor++;
+
+              // Delete packet
+              struct tsch_packet* deleted_packet =
+                  tsch_queue_remove_packet_from_queue(flow_neighbor);
+              if(deleted_packet == NULL) {
+                tsch_flow_missing_neighbor++;
+                TSCH_LOG_ADD(tsch_log_message,
+                              snprintf(log->message, sizeof(log->message),
+                                       "Lay!: ERR deleting packet"));
+              }
+              else {
+                  tsch_queue_free_packet(deleted_packet);
+                  p = NULL;
+              }
+            }
+            else {
+              p->link_used = link;
+            }
+          }
+        }
+        else {
+#endif
+          n = tsch_queue_get_nbr(&link->addr);
+          p = tsch_queue_get_packet_for_nbr(n, link);
+#if BUILD_WITH_LAYERED
+        }
+#endif
+
+#if BUILD_WITH_LAYERED
+        // Because we add all RPL and KA to the broadcast queue
+        // there is a possibility the packet returned here is not
+        // for broadcast (in other words, the neighbor is wrong). If so,
+        // correct the neighbor.
+        if(p != NULL && n == n_broadcast) {
+          // Get packet neighbor
+          linkaddr_t* packet_dest =
+              queuebuf_addr(p->qb, PACKETBUF_ADDR_RECEIVER);
+          if(!linkaddr_cmp(packet_dest, &linkaddr_null)) {
+
+            struct tsch_neighbor* packet_dest_neighbor =
+                tsch_queue_get_nbr(packet_dest);
+
+            if(packet_dest_neighbor == NULL) {
+//              TSCH_LOG_ADD(tsch_log_message,
+//                  snprintf(log->message, sizeof(log->message),
+//                  "Lay!: packet_dest_neighbor is NULL")); TODO log?
+            }
+            // Set packet neighbor as neighbor if mismatch
+            else if(packet_dest_neighbor != n) {
+              n = packet_dest_neighbor;
+            }
+          }
+        }
+#endif
+
         /* if it is a broadcast slot and there were no broadcast packets, pick any unicast packet */
         if(p == NULL && n == n_broadcast) {
           p = tsch_queue_get_unicast_packet_for_any(&n, link);
@@ -728,6 +822,13 @@ PT_THREAD(tsch_tx_slot(struct pt *pt, struct rtimer *t))
     if(current_neighbor != NULL && current_neighbor->is_time_source) {
       tsch_stats_tx_packet(current_neighbor, mac_tx_status, tsch_current_channel);
     }
+
+    // TODO ad-hoc update our scheduler-stats
+#if BUILD_WITH_LAYERED && LAYERED_STATS
+    layered_stats_update(current_neighbor, current_packet, current_link,
+                         tsch_get_channel_offset(current_link, current_packet),
+                         mac_tx_status);
+#endif
 
     /* Log every tx attempt */
     TSCH_LOG_ADD(tsch_log_tx,

@@ -101,9 +101,20 @@ int tsch_schedule_remove_all_slotframes(void);
  * \param do_remove Whether to remove an old link at this timeslot and channel offset
  * \return A pointer to the new link, NULL if failure
  */
+#if BUILD_WITH_LAYERED
+bool tsch_schedule_addr_is_for_flow(const linkaddr_t* addr);
+void tsch_schedule_convert_to_flow_address(linkaddr_t* addr);
+bool tsch_schedule_link_is_flow_link(const struct tsch_link* link);
+struct tsch_link *
+tsch_schedule_add_link(struct tsch_slotframe *slotframe,
+                       uint8_t link_options, enum link_type link_type, const linkaddr_t *address,
+                       uint16_t timeslot, uint16_t channel_offset, uint8_t do_remove,
+                       bool is_flow);
+#else
 struct tsch_link *tsch_schedule_add_link(struct tsch_slotframe *slotframe,
                                          uint8_t link_options, enum link_type link_type, const linkaddr_t *address,
                                          uint16_t timeslot, uint16_t channel_offset, uint8_t do_remove);
+#endif
 /**
 * \brief Looks for a link from a handle
 * \param handle The target handle
