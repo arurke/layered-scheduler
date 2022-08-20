@@ -610,6 +610,7 @@ rpl_alloc_dag(uint8_t instance_id, uip_ipaddr_t *dag_id)
       dag->rank = RPL_INFINITE_RANK;
       dag->min_rank = RPL_INFINITE_RANK;
       dag->instance = instance;
+      dag->depth = 0xffff;
       return dag;
     }
   }

@@ -101,6 +101,7 @@ struct rpl_metric_container {
   union metric_object {
     struct rpl_metric_object_energy energy;
     uint16_t etx;
+    uint16_t hop_count;
   } obj;
 };
 typedef struct rpl_metric_container rpl_metric_container_t;
@@ -139,6 +140,7 @@ struct rpl_dag {
   uint8_t grounded;
   uint8_t preference;
   uint8_t used;
+  uint16_t depth;
   /* live data for the DAG */
   uint8_t joined;
   rpl_parent_t *preferred_parent;

@@ -386,6 +386,15 @@ dio_input(void)
                  (unsigned)dio.mc.prec,
                  (unsigned)dio.mc.length,
                  (unsigned)dio.mc.obj.etx);
+        } else if(dio.mc.type == RPL_DAG_MC_HOPCOUNT) {
+          dio.mc.obj.hop_count = get16(buffer, i + 6);
+          LOG_INFO("DAG MC: type %u, flags %u, aggr %u, prec %u, length %u, hop_count %u\n",
+                 (unsigned)dio.mc.type,
+                 (unsigned)dio.mc.flags,
+                 (unsigned)dio.mc.aggr,
+                 (unsigned)dio.mc.prec,
+                 (unsigned)dio.mc.length,
+                 (unsigned)dio.mc.obj.hop_count);
         } else if(dio.mc.type == RPL_DAG_MC_ENERGY) {
           dio.mc.obj.energy.flags = buffer[i + 6];
           dio.mc.obj.energy.energy_est = buffer[i + 7];
@@ -545,6 +554,10 @@ dio_output(rpl_instance_t *instance, uip_ipaddr_t *uc_addr)
     if(instance->mc.type == RPL_DAG_MC_ETX) {
       buffer[pos++] = 2;
       set16(buffer, pos, instance->mc.obj.etx);
+      pos += 2;
+    } else if(instance->mc.type == RPL_DAG_MC_HOPCOUNT) {
+      buffer[pos++] = 2;
+      set16(buffer, pos, instance->mc.obj.hop_count);
       pos += 2;
     } else if(instance->mc.type == RPL_DAG_MC_ENERGY) {
       buffer[pos++] = 2;
