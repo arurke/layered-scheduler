@@ -1,3 +1,11 @@
+# Layered scheduler
+This fork of Contiki-ng contains the Layered scheduler as presented in [Layered autonomous TSCH scheduler for minimal band occupancy with bounded latency](https://doi.org/10.1002/itl2.255) and evaluated in another paper currently under review. Please cite appropriately if using this code.
+
+The implementation has been made solely for research purposes and has in no way, shape, or form, the qualities needed for commercial use.
+
+
+# Original README
+
 <img src="https://github.com/contiki-ng/contiki-ng.github.io/blob/master/images/logo/Contiki_logo_2RGB.png" alt="Logo" width="256">
 
 # Contiki-NG: The OS for Next Generation IoT Devices
