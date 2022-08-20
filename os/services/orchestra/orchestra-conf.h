@@ -85,6 +85,11 @@
 #define ORCHESTRA_UNICAST_SENDER_BASED            0
 #endif /* ORCHESTRA_CONF_UNICAST_SENDER_BASED */
 
+#if ORCHESTRA_CONF_DEPLOYMENT_HASH && BUILD_WITH_DEPLOYMENT
+#include "services/deployment/deployment.h"
+#define ORCHESTRA_CONF_LINKADDR_HASH(addr)        (deployment_id_from_lladdr(addr))
+#endif
+
 /* The hash function used to assign timeslot to a given node (based on its link-layer address).
  * For rules with multiple channel offsets, it is also used to select the channel offset. */
 #ifdef ORCHESTRA_CONF_LINKADDR_HASH
