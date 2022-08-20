@@ -1,0 +1,3 @@
+CFLAGS += -DBUILD_WITH_LAYERED=1
+MODULES += os/services/packet-type
+
