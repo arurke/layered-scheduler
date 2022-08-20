@@ -134,7 +134,7 @@ assert_nbr_routes_list_sane(void)
 #if UIP_DS6_NOTIFICATIONS
 static void
 call_route_callback(int event, const uip_ipaddr_t *route,
-                    const uip_ipaddr_t *nexthop)
+                    const uip_ipaddr_t *nexthop, bool update)
 {
   int num;
   struct uip_ds6_notification *n;
@@ -147,7 +147,7 @@ call_route_callback(int event, const uip_ipaddr_t *route,
     } else {
       num = num_routes;
     }
-    n->callback(event, route, nexthop, num);
+    n->callback(event, route, nexthop, num, update);
   }
 }
 /*---------------------------------------------------------------------------*/
@@ -327,6 +327,7 @@ uip_ds6_route_add(const uip_ipaddr_t *ipaddr, uint8_t length,
 #if (UIP_MAX_ROUTES != 0)
   uip_ds6_route_t *r;
   struct uip_ds6_route_neighbor_route *nbrr;
+  bool update = false;
 
   if(LOG_DBG_ENABLED) {
     assert_nbr_routes_list_sane();
@@ -354,12 +355,20 @@ uip_ds6_route_add(const uip_ipaddr_t *ipaddr, uint8_t length,
     current_nexthop = uip_ds6_route_nexthop(r);
     if(current_nexthop != NULL && uip_ipaddr_cmp(nexthop, current_nexthop)) {
       /* no need to update route - already correct! */
+#if BUILD_WITH_LAYERED
+      // Notify the layered scheduler regardless because we might
+      // have changed layer.
+#if UIP_DS6_NOTIFICATIONS
+      call_route_callback(UIP_DS6_NOTIFICATION_ROUTE_ADD, ipaddr, nexthop, true);
+#endif
+#endif
       return r;
     }
     LOG_INFO("Add: old route for ");
     LOG_INFO_6ADDR(ipaddr);
     LOG_INFO_(" found, deleting it\n");
 
+    update = true;
     uip_ds6_route_rm(r);
   }
   {
@@ -468,7 +477,7 @@ uip_ds6_route_add(const uip_ipaddr_t *ipaddr, uint8_t length,
   LOG_ANNOTATE("#L %u 1;blue\n", nexthop->u8[sizeof(uip_ipaddr_t) - 1]);
 
 #if UIP_DS6_NOTIFICATIONS
-  call_route_callback(UIP_DS6_NOTIFICATION_ROUTE_ADD, ipaddr, nexthop);
+  call_route_callback(UIP_DS6_NOTIFICATION_ROUTE_ADD, ipaddr, nexthop, update);
 #endif
 
   if(LOG_DBG_ENABLED) {
@@ -537,7 +546,7 @@ uip_ds6_route_rm(uip_ds6_route_t *route)
 
 #if UIP_DS6_NOTIFICATIONS
     call_route_callback(UIP_DS6_NOTIFICATION_ROUTE_RM,
-        &route->ipaddr, uip_ds6_route_nexthop(route));
+        &route->ipaddr, uip_ds6_route_nexthop(route), false);
 #endif
   }
 
@@ -604,6 +613,7 @@ uip_ds6_defrt_t *
 uip_ds6_defrt_add(const uip_ipaddr_t *ipaddr, unsigned long interval)
 {
   uip_ds6_defrt_t *d;
+  bool refresh = false;
 
   if(LOG_DBG_ENABLED) {
     assert_nbr_routes_list_sane();
@@ -631,6 +641,7 @@ uip_ds6_defrt_add(const uip_ipaddr_t *ipaddr, unsigned long interval)
   }
   else {
     LOG_INFO("Refreshing default\n");
+    refresh = true;
   }
 
   uip_ipaddr_copy(&d->ipaddr, ipaddr);
@@ -644,7 +655,7 @@ uip_ds6_defrt_add(const uip_ipaddr_t *ipaddr, unsigned long interval)
   LOG_ANNOTATE("#L %u 1\n", ipaddr->u8[sizeof(uip_ipaddr_t) - 1]);
 
 #if UIP_DS6_NOTIFICATIONS
-  call_route_callback(UIP_DS6_NOTIFICATION_DEFRT_ADD, ipaddr, ipaddr);
+  call_route_callback(UIP_DS6_NOTIFICATION_DEFRT_ADD, ipaddr, ipaddr, refresh);
 #endif
 
 if(LOG_DBG_ENABLED) {
@@ -674,7 +685,7 @@ uip_ds6_defrt_rm(uip_ds6_defrt_t *defrt)
       LOG_ANNOTATE("#L %u 0\n", defrt->ipaddr.u8[sizeof(uip_ipaddr_t) - 1]);
 #if UIP_DS6_NOTIFICATIONS
       call_route_callback(UIP_DS6_NOTIFICATION_DEFRT_RM,
-			  &defrt->ipaddr, &defrt->ipaddr);
+        &defrt->ipaddr, &defrt->ipaddr, false);
 #endif
       return;
     }

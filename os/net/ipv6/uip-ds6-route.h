@@ -89,9 +89,10 @@ void uip_ds6_route_init(void);
 #define UIP_DS6_NOTIFICATION_ROUTE_RM  3
 
 typedef void (* uip_ds6_notification_callback)(int event,
-					       const uip_ipaddr_t *route,
-					       const uip_ipaddr_t *nexthop,
-					       int num_routes);
+                 const uip_ipaddr_t *route,
+                 const uip_ipaddr_t *nexthop,
+                 int num_routes,
+                 bool route_update);
 struct uip_ds6_notification {
   struct uip_ds6_notification *next;
   uip_ds6_notification_callback callback;
