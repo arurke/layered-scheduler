@@ -1,3 +1,5 @@
 CFLAGS += -DBUILD_WITH_LAYERED=1
+ifdef LAYERED_DIVERGECAST
+  CFLAGS += -DLAYERED_DIVERGECAST=1
+endif
 MODULES += os/services/packet-type
-

@@ -51,6 +51,9 @@
 #include "net/ipv6/uip-sr.h"
 #include "net/routing/rpl-classic/rpl-private.h"
 #include "net/packetbuf.h"
+#if BUILD_WITH_LAYERED && LAYERED_DIVERGECAST
+#include "layered.h"
+#endif
 
 #include "sys/log.h"
 
@@ -472,6 +475,11 @@ update_hbh_header(void)
         if(uip_ds6_route_lookup(&UIP_IP_BUF->destipaddr) == NULL) {
           rpl_opt->flags |= RPL_HDR_OPT_FWD_ERR;
           LOG_WARN("RPL forwarding error\n");
+#if BUILD_WITH_LAYERED && LAYERED_DIVERGECAST
+          // Notify the scheduler of the forwarding error
+          layered_last_packet_was_forwarding_error(
+              packetbuf_addr(PACKETBUF_ADDR_SENDER));
+#endif
           /* We should send back the packet to the originating parent,
                 but it is not feasible yet, so we send a No-Path DAO instead */
 #if TEST_FWD_ERR_BIT

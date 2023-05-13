@@ -552,7 +552,7 @@ tsch_queue_get_packet_for_dest_addr(const linkaddr_t *addr, struct tsch_link *li
   return NULL;
 }
 
-#if BUILD_WITH_LAYERED
+#if BUILD_WITH_LAYERED && !LAYERED_DIVERGECAST
 static bool
 neighbor_is_flow_neighbor(const struct tsch_neighbor *n) {
   return tsch_schedule_addr_is_for_flow(tsch_queue_get_nbr_address(n));
@@ -569,7 +569,7 @@ tsch_queue_get_unicast_packet_for_any(struct tsch_neighbor **n, struct tsch_link
     struct tsch_neighbor *curr_nbr = (struct tsch_neighbor *)nbr_table_head(tsch_neighbors);
     struct tsch_packet *p = NULL;
     while(curr_nbr != NULL) {
-#if BUILD_WITH_LAYERED
+#if BUILD_WITH_LAYERED && !LAYERED_DIVERGECAST
       // Do not pick a flow-neighbor - we do not want flow-packets
       // on any other cells than the dedicated ones
       if(!curr_nbr->is_broadcast &&

@@ -232,6 +232,36 @@ tsch_schedule_link_is_flow_link(const struct tsch_link* link) {
   return tsch_schedule_addr_is_for_flow(&link->addr);
 }
 
+struct tsch_link *
+tsch_schedule_get_link_by_addr_options(const struct tsch_slotframe* slotframe,
+                                       const linkaddr_t* addr,
+                                       uint8_t link_options, bool is_flow) {
+  if(!tsch_is_locked()) {
+    if(slotframe != NULL) {
+
+      // Convert to flow-address if is_flow
+      linkaddr_t address_compare = {0};
+      linkaddr_copy(&address_compare, addr);
+      if(is_flow) {
+        tsch_schedule_convert_to_flow_address(&address_compare);
+      }
+
+      struct tsch_link *l = list_head(slotframe->links_list);
+      while(l != NULL) {
+//        LOG_INFO("Looking for 0x%02x:%02x in 0x%02x:%02x\n",
+//                 address_compare.u8[0], address_compare.u8[7],
+//                 l->addr.u8[0], l->addr.u8[7]);
+        if(linkaddr_cmp(&(l->addr), &address_compare) &&
+            l->link_options == link_options) {
+          return l;
+        }
+        l = list_item_next(l);
+      }
+    }
+  }
+  return NULL;
+}
+
 /*---------------------------------------------------------------------------*/
 /* Adds a link to a slotframe, return a pointer to it (NULL if failure) */
 struct tsch_link *

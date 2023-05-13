@@ -6,7 +6,7 @@
 
 /*---------------------------------------------------------------------------*/
 
-// Experimental stateful implementation takes more RAM but catches e.g. failed allocations
+// Stateful implementation takes more RAM but catches e.g. failed allocations
 #ifdef LAYERED_CONF_STATEFUL
 #define LAYERED_STATEFUL              LAYERED_CONF_STATEFUL
 #else
@@ -50,9 +50,34 @@
 #ifdef LAYERED_CONF_CHANNELS
 #define LAYERED_CHANNELS              LAYERED_CONF_CHANNELS
 #else
+// Avoid channel offset 0 due to stats not supporting it.
+#if LAYERED_DIVERGECAST
+// Must be even number of channels at least 2
+#define LAYERED_CHANNELS              (uint8_t[]){1,2,3,4}
+#else
 #define LAYERED_CHANNELS              (uint8_t[]){1,2}
 #endif
+#endif
 #define LAYERED_NUM_CHANNELS          sizeof(LAYERED_CHANNELS)
+
+// Time without traffic before de-scheduling a flow-link (divergecast only)
+#ifndef LAYERED_CONF_LINK_TIMEOUT_SEC
+#define LAYERED_LINK_TIMEOUT_SEC     7
+#else
+#define LAYERED_LINK_TIMEOUT_SEC     (LAYERED_CONF_LINK_TIMEOUT_SEC)
+#endif
+
+#ifndef LAYERED_CONF_ROUTE_CHANGE_WAIT_SEC
+#define LAYERED_ROUTE_CHANGE_WAIT_SEC   2
+#else
+#define LAYERED_ROUTE_CHANGE_WAIT_SEC   (LAYERED_CONF_ROUTE_CHANGE_WAIT_SEC)
+#endif
+
+#ifndef LAYERED_CONF_PARENT_CHANGE_WAIT_SEC
+#define LAYERED_PARENT_CHANGE_WAIT_SEC   10
+#else
+#define LAYERED_PARENT_CHANGE_WAIT_SEC   (LAYERED_CONF_PARENT_CHANGE_WAIT_SEC)
+#endif
 
 // Hash functions
 #if BUILD_WITH_DEPLOYMENT
@@ -71,7 +96,11 @@
 #ifdef LAYERED_CONF_RULES
 #define LAYERED_RULES LAYERED_CONF_RULES
 #else
+#if LAYERED_DIVERGECAST
+#define LAYERED_RULES { &layered_divergecast }
+#else
 #define LAYERED_RULES { &layered_multi_channel }
+#endif
 #endif
 
 /*---------------------------------------------------------------------------*/

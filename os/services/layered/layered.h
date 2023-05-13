@@ -39,6 +39,9 @@
 #include "layered-conf.h"
 #include "net/mac/tsch/tsch.h"
 #include "packet-type.h"
+#if LAYERED_DIVERGECAST
+#include "net/routing/rpl-classic/rpl.h"
+#endif
 
 /*---------------------------------------------------------------------------*/
 
@@ -53,14 +56,57 @@ struct layered_rule {
 };
 
 struct layered_rule layered_multi_channel;
+struct layered_rule layered_divergecast;
 
 /*---------------------------------------------------------------------------*/
 
-/* Call from application to start Layered */
+// Call from application to start Layered
 void layered_init(void);
 
-bool layered_get_flow_address_for_packet(uint16_t frame_type, const uint8_t* data,
-                                          uint16_t data_len, linkaddr_t* flow_address);
+// Get source address for app. packet
+bool layered_get_source_address_for_app_packet(const uint8_t* data,
+                                               uint16_t data_len,
+                                               linkaddr_t* flow_address);
+
+// Get flow address for given packet
+bool layered_get_flow_address_for_packet(uint16_t frame_type,
+                                         const uint8_t* data,
+                                         uint16_t data_len,
+                                         linkaddr_t* flow_address);
+
+// Get flow address for given app. packet
+// Note! Does not work in netstack callbacks
+bool layered_get_flow_address_for_app_packet(const uint8_t* data,
+                                             uint16_t data_len,
+                                             linkaddr_t* flow_address);
+
+// Get flow address for given app. packet via uipbuf
+// Assumes uipbuf is set correctly. Can by used in netstack callbacks.
+void layered_get_source_address_uipbuf(linkaddr_t* source_lladdr);
+
+bool
+layered_get_source_address_for_app_packet_after_netstack_callbacks(
+    bool after_ack, linkaddr_t* source_address);
+
+bool
+layered_get_dest_address_for_app_packet_after_netstack_callbacks(
+    bool after_ack, linkaddr_t* dest_address);
+
+// Set with
+// #define TSCH_CALLBACK_NEW_TIME_SOURCE layered_callback_new_time_source
+void layered_callback_new_time_source(
+    const struct tsch_neighbor *old, const struct tsch_neighbor *new);
+
+#if LAYERED_DIVERGECAST
+void
+layered_check_for_link_inconsistency(const rpl_parent_t* transmitter,
+                                     const linkaddr_t* transmitter_addr,
+                                     bool rpl_direction_upwards);
+
+// Call if the last packet turned out to be a RPL forwarding error
+void
+layered_last_packet_was_forwarding_error(const linkaddr_t* transmitter);
+#endif
 
 #if LAYERED_STATS
 void layered_stats_update(struct tsch_neighbor *n, struct tsch_packet *p,

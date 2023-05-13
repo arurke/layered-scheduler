@@ -1,7 +1,6 @@
 #include "contiki.h"
 #include "layered.h"
 #include "net/ipv6/uip-ds6-route.h"
-#include "net/packetbuf.h"
 #include "net/routing/routing.h"
 #include "sys/node-id.h"
 #include "rpl.h"
@@ -16,16 +15,6 @@
 #include "sys/log.h"
 #define LOG_MODULE "Layered"
 #define LOG_LEVEL   LOG_LEVEL_LAYERED
-
-/*---------------------------------------------------------------------------*/
-
-#ifndef BUILD_WITH_PACKET_TYPE
-#error Layered requires BUILD_WITH_PACKET_TYPE
-#endif
-
-#if ROUTING_CONF_RPL_LITE
-#error Layered supports only RPL CLASSIC
-#endif
 
 /*---------------------------------------------------------------------------*/
 
@@ -52,16 +41,10 @@ static struct tsch_slotframe *sf_layered;
 // Avoid channel offset 0 due to stats not supporting it.
 static uint8_t channels[NUM_CHANNELS] = CHANNELS;
 
-// For gruesome source addr heuristics
-#define HOP_LIMIT_MASK            0x03
-#define SIXLO_HEADER_PART2_OFFSET 1
-#define SRC_ADDR_MODE_MASK        0x30
-#define SRC_ADDR_OFFSET           3
-
 #define FIRST_COMMON_SLOT         (COMMON_SLOT_SPACING - 1)
 #define COMMON_SLOT_OPTIONS       (LINK_OPTION_RX | LINK_OPTION_TX | LINK_OPTION_SHARED)
 
-#if LAYERED_STATS && !LAYERED_STATEFUL
+#if LAYERED_STATS && !LAYERED_STATEFUL && !LAYERED_CONF_DIVERGECAST
 #define STATS_NUM_LINKS   50
 typedef struct {
   uint16_t timeslot;
@@ -265,6 +248,17 @@ void layered_print_stats() {
 #endif /* LAYERED_STATS */
 
 // Returns link matching the timeslot/channel
+static layered_link_t* get_link_in_timeslot(uint16_t timeslot) {
+  for(int i = 0; i < MAX_NUM_LINKS; i++) {
+    if(layered_links[i].occupied &&
+        layered_links[i].timeslot == timeslot) {
+      return &layered_links[i];
+    }
+  }
+  return NULL;
+}
+
+// Returns link matching the timeslot/channel
 static layered_link_t* get_link(uint16_t timeslot, uint16_t channel) {
   for(int i = 0; i < MAX_NUM_LINKS; i++) {
     if(layered_links[i].occupied &&
@@ -358,6 +352,12 @@ static void add_link(
       LOG_DBG("Link %u/%u already in place and enabled\n", timeslot, channel);
     }
     return;
+  }
+
+  // Remove any existing cell in the same timeslot (should only be one TODO)
+  layered_link_t* existing_link_in_ts = get_link_in_timeslot(timeslot);
+  if(existing_link_in_ts != NULL && link_is_enabled(existing_link_in_ts)) {
+    remove_link(existing_link_in_ts->timeslot, existing_link_in_ts->channel);
   }
 
   // Add new link
@@ -477,12 +477,15 @@ calculate_layered_timeslot(const linkaddr_t *linkaddr, uint16_t layer) {
   uint16_t timeslot = get_node_timeslot(linkaddr);
 
   if(timeslot == 0xffff) {
-    LOG_ERR("Lay!: Panic! Unable to calculate timeslot! TEST FAILED\n");
+    LOG_ERR("PANIC: Unable to calculate timeslot!\n");
     return 0xffff;
   }
 
   // TODO Because timeslots are 0-indexed
-  timeslot--;
+  // TODO ad-hoc fix for when return timeslot is 0.
+  if(timeslot != 0) {
+    timeslot--;
+  }
 
   // Shift right into correct layer
   timeslot += (LAYERED_NUM_LAYERS - layer) * LAYERED_MAX_NUM_NODES;
@@ -492,82 +495,6 @@ calculate_layered_timeslot(const linkaddr_t *linkaddr, uint16_t layer) {
   timeslot += num_common_slots_so_far;
 
   return timeslot;
-}
-
-static bool
-find_source_address(
-    const uint8_t* data, uint16_t data_len, linkaddr_t* source_lladdr) {
-  // Hack to figure out the originating node address
-
-  if(data_len < 12) {
-    LOG_ERR("Too short for source address!\n");
-    return false;
-  }
-
-//  LOG_DBG("Len: %u. Hex:", data_len);
-//  for(int i = 0; i < data_len; i++) {
-//    LOG_DBG_("%02x", data[i]);
-//  }
-//  LOG_DBG_("\n");
-
-  // Is source address compressed? If yes, we are transmitting
-  if(((*(data + SIXLO_HEADER_PART2_OFFSET)) & SRC_ADDR_MODE_MASK) == 0x30) {
-    memcpy(source_lladdr, &linkaddr_node_addr, sizeof(linkaddr_t));
-    return true;
-  }
-
-  uint8_t src_addr_offset = SRC_ADDR_OFFSET;
-
-  // Has inline hop limit? This moves the source addr one byte
-  if(((*data) & HOP_LIMIT_MASK) == 0) {
-    src_addr_offset++;
-//    LOG_DBG("inline hoplimit\n");
-  }
-
-  linkaddr_t* fetched_source_address = (linkaddr_t*)(data + src_addr_offset);
-
-  // Create an ipaddr and fill the interface id from the buf
-  uip_ipaddr_t ipaddr = {0};
-  memcpy(ipaddr.u8 + 8, fetched_source_address->u8, LINKADDR_SIZE);
-
-  // Use ds6 to properly decode lladdr from IP.
-  uip_ds6_set_lladdr_from_iid((uip_lladdr_t*) source_lladdr, &ipaddr);
-
-  // This may be called by TSCH
-//  LOG_DBG("Found node ");
-//  LOG_DBG_LLADDR(source_lladdr);
-//  LOG_DBG_("\n");
-
-  return true;
-}
-
-/*---------------------------------------------------------------------------*/
-bool
-layered_get_flow_address_for_packet(uint16_t frame_type, const uint8_t* data,
-                                    uint16_t data_len,
-                                    linkaddr_t* flow_address) {
-
-  // TODO might be that this can always be found in PACKETBUF_ATTR_PACKET_TYPE
-  packet_type_t packet_type = packet_type_get(frame_type, data, data_len);
-
-  switch(packet_type) {
-    case PACKET_TYPE_APP:
-      if(!find_source_address(data, data_len, flow_address)) {
-         // Unable to find the source address, this should not happen
-        LOG_ERR("Panic!\n");
-        return false;
-      }
-      // Convert the source address into its flow address
-      tsch_schedule_convert_to_flow_address(flow_address);
-//      LOG_DBG("Flow packet\n");
-      return true;
-    case PACKET_TYPE_BEACON:
-    case PACKET_TYPE_RPL:
-    case PACKET_TYPE_KEEPALIVE:
-    default:
-//      LOG_DBG("Not flow packet\n");
-      return false;
-  }
 }
 
 /*---------------------------------------------------------------------------*/
@@ -603,7 +530,7 @@ static void remove_other_cells_in_timeslot(uint16_t timeslot, uint16_t channel) 
 
       if(existing_link != NULL) {
         tsch_schedule_remove_link(sf_layered, existing_link);
-#if LAYERED_STATS
+#if LAYERED_STATS && !LAYERED_CONF_DIVERGECAST
         stats_deactivate_link(timeslot, channels[i]);
 #endif
         LOG_INFO("Removed existing cell %u/%u\n", timeslot, channels[i]);
@@ -628,7 +555,7 @@ schedule_upwards_tx_cell(
   const linkaddr_t* parent_linkaddr =
       rpl_get_parent_lladdr(rpl_dag->preferred_parent);
 
-#if LAYERED_STATS && !LAYERED_STATEFUL
+#if LAYERED_STATS && !LAYERED_STATEFUL && !LAYERED_CONF_DIVERGECAST
   if(remove) {
     stats_deactivate_link(timeslot, channel);
   }
@@ -748,7 +675,7 @@ schedule_downwards_tx_cell(
   uint16_t timeslot = calculate_layered_timeslot(linkaddr, layer);
   uint16_t channel = calculate_channel(depth);
 
-#if LAYERED_STATS && !LAYERED_STATEFUL
+#if LAYERED_STATS && !LAYERED_STATEFUL && !LAYERED_CONF_DIVERGECAST
   if(remove) {
     stats_deactivate_link(timeslot, channel);
   }
@@ -856,7 +783,7 @@ static void schedule_common_cells(void) {
     add_link(timeslot, channel, options,
              LINK_TYPE_NORMAL, &tsch_broadcast_address, false);
 #else
-#if LAYERED_STATS
+#if LAYERED_STATS && !LAYERED_CONF_DIVERGECAST
     stats_add_link(timeslot, channel, options);
 #endif
     if(!tsch_schedule_add_link(sf_layered, options, LINK_TYPE_NORMAL,

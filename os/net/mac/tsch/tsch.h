@@ -106,6 +106,14 @@ frequency hopping for enhanced reliability.
 
 #endif /* BUILD_WITH_ORCHESTRA */
 
+#if BUILD_WITH_LAYERED
+
+#ifndef TSCH_CALLBACK_NEW_TIME_SOURCE
+#define TSCH_CALLBACK_NEW_TIME_SOURCE layered_callback_new_time_source
+#endif /* TSCH_CALLBACK_NEW_TIME_SOURCE */
+
+#endif /* BUILD_WITH_LAYERED */
+
 /* Called by TSCH when joining a network */
 #ifdef TSCH_CALLBACK_JOINING_NETWORK
 void TSCH_CALLBACK_JOINING_NETWORK();
