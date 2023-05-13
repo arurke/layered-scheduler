@@ -1,5 +1,9 @@
 # Layered scheduler
-This fork of Contiki-ng contains the Layered scheduler as presented in [Layered autonomous TSCH scheduler for minimal band occupancy with bounded latency](https://doi.org/10.1002/itl2.255) and evaluated in another paper currently under review. Please cite appropriately if using this code.
+This fork of Contiki-ng is based on v4.6 (+ some minor commits, see log) and contains the Layered scheduler:
+
+1. A version tailored for convergecast traffic pattern, see layered-multi-channel.c. It is recommended to check out the tag "layered-convergecast". The scheduler was presented in [Layered autonomous TSCH scheduler for minimal band occupancy with bounded latency](https://doi.org/10.1002/itl2.255) and [Experimental Evaluation of the Layered Flow-Based Autonomous TSCH Scheduler](https://doi.org/10.1109/ACCESS.2023.3235267).
+2. A version tailored for heterogeneous traffic patterns, see layered-divergecast.c. This scheduler was used in a research paper currently under review.
+Please cite appropriately if using this code.
 
 The implementation has been made solely for research purposes and has in no way, shape, or form, the qualities needed for commercial use.
 
