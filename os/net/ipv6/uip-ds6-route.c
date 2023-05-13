@@ -613,7 +613,9 @@ uip_ds6_defrt_t *
 uip_ds6_defrt_add(const uip_ipaddr_t *ipaddr, unsigned long interval)
 {
   uip_ds6_defrt_t *d;
+#if UIP_DS6_NOTIFICATIONS
   bool refresh = false;
+#endif
 
   if(LOG_DBG_ENABLED) {
     assert_nbr_routes_list_sane();
@@ -640,8 +642,10 @@ uip_ds6_defrt_add(const uip_ipaddr_t *ipaddr, unsigned long interval)
     list_push(defaultrouterlist, d);
   }
   else {
-    LOG_INFO("Refreshing default\n");
+#if UIP_DS6_NOTIFICATIONS
     refresh = true;
+#endif
+    LOG_INFO("Refreshing default\n");
   }
 
   uip_ipaddr_copy(&d->ipaddr, ipaddr);

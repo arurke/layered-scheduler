@@ -119,6 +119,12 @@ rpl_ext_header_hbh_update(uint8_t *ext_buf, int opt_offset)
   sender_rank = UIP_HTONS(rpl_opt->senderrank);
   sender = nbr_table_get_from_lladdr(rpl_parents, packetbuf_addr(PACKETBUF_ADDR_SENDER));
 
+#if BUILD_WITH_LAYERED && LAYERED_DIVERGECAST
+  layered_check_for_link_inconsistency(sender,
+                                       packetbuf_addr(PACKETBUF_ADDR_SENDER),
+                                       down ? false : true);
+#endif
+
   if(sender != NULL && (rpl_opt->flags & RPL_HDR_OPT_RANK_ERR)) {
     /* A rank error was signalled, attempt to repair it by updating
      * the sender's rank from ext header */
@@ -152,9 +158,14 @@ rpl_ext_header_hbh_update(uint8_t *ext_buf, int opt_offset)
     if(rpl_opt->flags & RPL_HDR_OPT_RANK_ERR) {
       RPL_STAT(rpl_stats.loop_errors++);
       LOG_ERR(" Rank error signalled in RPL option!\n");
+
+#if TEST_FIX_DOUBLE_CALL_BUG
+      return 3;
+#else
       /* Packet must be dropped and dio trickle timer reset, see RFC6550 - 11.2.2.2 */
       rpl_reset_dio_timer(instance);
       return 0;
+#endif
     }
     LOG_WARN("Single error tolerated\n");
     RPL_STAT(rpl_stats.loop_warnings++);
@@ -463,10 +474,17 @@ update_hbh_header(void)
           LOG_WARN("RPL forwarding error\n");
           /* We should send back the packet to the originating parent,
                 but it is not feasible yet, so we send a No-Path DAO instead */
+#if TEST_FWD_ERR_BIT
+          LOG_WARN("Returning with forwarding error bit set\n");
+          return 2;
+#else
           LOG_WARN("RPL generate No-Path DAO\n");
+#endif
           parent = rpl_get_parent((uip_lladdr_t *)packetbuf_addr(PACKETBUF_ADDR_SENDER));
           if(parent != NULL) {
-            dao_output_target(parent, &UIP_IP_BUF->destipaddr, RPL_ZERO_LIFETIME);
+            // TODO possibly PR - got "bad ipv6 checksum" when the receiver got the DAO
+            rpl_schedule_no_path_dao_immediately(parent, &UIP_IP_BUF->destipaddr);
+//            dao_output_target(parent, &UIP_IP_BUF->destipaddr, RPL_ZERO_LIFETIME);
           }
           /* Drop packet */
           return 0;

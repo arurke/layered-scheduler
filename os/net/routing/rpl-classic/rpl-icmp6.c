@@ -723,6 +723,62 @@ dao_input_storing(void)
              DAG_RANK(parent->rank, instance), DAG_RANK(dag->rank, instance));
       parent->rank = RPL_INFINITE_RANK;
       parent->flags |= RPL_PARENT_FLAG_UPDATED;
+
+#if TEST_FIX_NO_PATH_DAO_TREATMENT
+      /* Check if there are any RPL options present. */
+      for(i = pos; i < buffer_length; i += len) {
+        subopt_type = buffer[i];
+        if(subopt_type == RPL_OPTION_PAD1) {
+          len = 1;
+        } else {
+          /* The option consists of a two-byte header and a payload. */
+          len = 2 + buffer[i + 1];
+        }
+
+        switch(subopt_type) {
+          case RPL_OPTION_TARGET:
+            /* Handle the target option. */
+            prefixlen = buffer[i + 3];
+            memset(&prefix, 0, sizeof(prefix));
+            memcpy(&prefix, buffer + i + 4, (prefixlen + 7) / CHAR_BIT);
+            break;
+          case RPL_OPTION_TRANSIT:
+            /* The path sequence and control are ignored. */
+            /*      pathcontrol = buffer[i + 3];
+                    pathsequence = buffer[i + 4];*/
+            lifetime = buffer[i + 5];
+            /* The parent address is also ignored. */
+            break;
+        }
+      }
+
+      rep = uip_ds6_route_lookup(&prefix);
+
+      if(lifetime == RPL_ZERO_LIFETIME) {
+         LOG_INFO("No-Path DAO received\n");
+         /* No-Path DAO received; invoke the route purging routine. */
+         if(rep != NULL &&
+            !RPL_ROUTE_IS_NOPATH_RECEIVED(rep) &&
+            rep->length == prefixlen &&
+            uip_ds6_route_nexthop(rep) != NULL &&
+            uip_ipaddr_cmp(uip_ds6_route_nexthop(rep), &dao_sender_addr)) {
+           LOG_DBG("Setting expiration timer for prefix ");
+           LOG_DBG_6ADDR(&prefix);
+           LOG_DBG_("\n");
+           RPL_ROUTE_SET_NOPATH_RECEIVED(rep);
+           rep->state.lifetime = RPL_NOPATH_REMOVAL_DELAY;
+
+         }
+         /* independent if we remove or not - ACK the request */
+         if(flags & RPL_DAO_K_FLAG) {
+           /* indicate that we accepted the no-path DAO */
+           uipbuf_clear();
+           dao_ack_output(instance, &dao_sender_addr, sequence,
+                          RPL_DAO_ACK_UNCONDITIONAL_ACCEPT);
+         }
+         return;
+       }
+
       return;
     }
 
@@ -1153,6 +1209,24 @@ dao_output(rpl_parent_t *parent, uint8_t lifetime)
   /* Sending a DAO with own prefix as target */
   dao_output_target(parent, &prefix, lifetime);
 }
+/*---------------------------------------------------------------------------*/
+static struct ctimer ct_no_path_dao;
+static rpl_parent_t* no_path_dao_parent;
+static uip_ipaddr_t no_path_dao_prefix;
+
+void send_no_path_dao() {
+  dao_output_target(no_path_dao_parent,
+                    &no_path_dao_prefix,
+                    RPL_ZERO_LIFETIME);
+}
+
+void
+rpl_schedule_no_path_dao_immediately(rpl_parent_t *parent, uip_ipaddr_t *prefix) {
+  no_path_dao_parent = parent;
+  no_path_dao_prefix = *prefix;
+  ctimer_set(&ct_no_path_dao, 0, send_no_path_dao, NULL);
+}
+
 /*---------------------------------------------------------------------------*/
 void
 dao_output_target(rpl_parent_t *parent, uip_ipaddr_t *prefix, uint8_t lifetime)
